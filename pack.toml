@@ -1,0 +1,10 @@
+[custom.all.soas]
+type = "local"
+path = "."
+ipkg = "soas.ipkg"
+test = "test/test.ipkg"
+
+[custom.all.soas-test]
+type = "local"
+path = "test"
+ipkg = "test.ipkg"
