@@ -86,18 +86,18 @@ weakrNamed ctx1 (ctx :< sy) (There pos) =
 weakr : (ctx1, ctx2 : type.Ctx) -> ctx2 ~> (ctx1 ++ ctx2)
 weakr ctx1 ctx2 ((%% name) {pos}) = weakrNamed ctx1 ctx2 pos
 
-(.copairPos) : (x : type.SortedFamily) -> {ctx2 : type.Ctx} ->
+(.copairPos) : (0 x : type.SortedFamily) -> {ctx2 : type.Ctx} ->
   x.subst ctx1 ctx -> x.subst ctx2 ctx -> x.substNamed (ctx1 ++ ctx2) ctx
 x.copairPos {ctx2 = [<]} g1 g2 pos = g1 $ pos.toVar
 x.copairPos {ctx2 = (ctx :< (name :- ty))} g1 g2 Here = g2 (Here .toVar)
 x.copairPos {ctx2 = (ctx2 :< namety)} g1 g2 (There pos) =
   x.copairPos g1 (g2 . ThereVar) pos
 
-(.copair) : (x : type.SortedFamily) -> {ctx2 : type.Ctx} ->
+(.copair) : (0 x : type.SortedFamily) -> {ctx2 : type.Ctx} ->
   x.subst ctx1 ctx -> x.subst ctx2 ctx -> x.subst (ctx1 ++ ctx2) ctx
 x.copair g1 g2 v = x.copairPos g1 g2 v.pos
 
-extend : (x : type.SortedFamily) -> {ctx1 : type.Ctx} -> {ty : type} ->
+extend : (0 x : type.SortedFamily) -> {0 ctx1 : type.Ctx} -> {ty : type} ->
   x ty ctx2 -> x.subst ctx1 ctx2 -> x.subst (ctx1 :< (n :- ty)) ctx2
 extend x {ctx2, ty} u theta =
   x.copair {ctx2 = [< n :- ty]} theta workaround -- (\case {Here => x})
@@ -146,12 +146,12 @@ t.sub s = mon.mult t (extend m s mon.var)
   m ty1 ctx ->  m ty2 ctx -> m sy ctx
 t.sub2 s1 s2 = mon.mult t (extend m s2 (extend m s1 mon.var))
 
-record PointedCoalgStruct (x : type.SortedFamily) where
+record (.PointedCoalgStruct) type (x : type.SortedFamily) where
   constructor MkPointedCoalgStruct
   ren : x -|> [] x
   var : Var -|> x
 
-liftPos : (ctx : type.Ctx) -> (mon : PointedCoalgStruct p) =>
+liftPos : (ctx : type.Ctx) -> (mon : type.PointedCoalgStruct p) =>
   {ctx2 : type.Ctx} ->
   (p.subst ctx1 ctx2) -> p.substNamed (ctx1 ++ ctx) (ctx2 ++ ctx)
 liftPos [<] f x = f x.toVar
@@ -160,14 +160,14 @@ liftPos (ctx :< namety) f (There pos) = mon.ren (liftPos ctx f pos)
   ThereVar
 
 
-lift : (ctx : type.Ctx) -> (mon : PointedCoalgStruct p) =>
+lift : (ctx : type.Ctx) -> (mon : type.PointedCoalgStruct p) =>
   {ctx2 : type.Ctx} ->
   (p.subst ctx1 ctx2) -> p.subst (ctx1 ++ ctx) (ctx2 ++ ctx)
 lift ctx f v = liftPos ctx f v.pos
 
 0
 Strength : (f : type.SortedFamily -> type.SortedFamily) -> Type
-Strength f = {0 p,x : type.SortedFamily} -> (mon : PointedCoalgStruct p) =>
+Strength f = {0 p,x : type.SortedFamily} -> (mon : type.PointedCoalgStruct p) =>
   (f (x ^ p)) -|> ((f x) ^ p)
 
 0
@@ -201,7 +201,7 @@ traverse : {0 p,a : type.SortedFamily} ->
       {0 signature : type.SortedFunctor} ->
       (functoriality : signature.Map) =>
       (str : Strength signature) =>
-      (coalg : PointedCoalgStruct p) =>
+      (coalg : type.PointedCoalgStruct p) =>
       (alg : signature a -|> a) ->
       (phi : p -|> a) ->
       (chi : meta -|> (a ^ a)) -> signature.MetaAlg meta (a ^ p)
@@ -292,6 +292,20 @@ a.sem {ctx = ctx1''} (Me  m env)
     (a.sem {signature,x,str,functoriality})
     env
 
+(.TermAlg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MetaAlg x (signature.Term x)
+signature.TermAlg x = MkMetaAlg
+  { alg = Op
+  , mvar = \m,env => Me m env  -- bug: type-checker complains if we
+                               -- eta-reduce
+  , var = \v => Va v           -- bug: ditto
+  }
+
+
 -- Not sure these are useful
 data (+) : (signature1, signature2 : type.SortedFunctor) ->
   type.SortedFunctor where
@@ -299,6 +313,7 @@ data (+) : (signature1, signature2 : type.SortedFunctor) ->
     (op : sig1 x ty ctx) -> (sig1 + sig2) x ty ctx
   Rgt :  {signature1, signature2 : type.SortedFunctor} ->
     (op : sig2 x ty ctx) -> (sig1 + sig2) x ty ctx
+
 
 sum : (signatures : List $ (String, type.SortedFunctor)) ->
   type.SortedFunctor
@@ -313,13 +328,33 @@ bind tys = (<<< tys)
 
 infixr 3 -:>
 
+-- Writing the descriptions directly is fine
+-- but deriving their functoriality and strength is annoying
+-- and not needed with enough metaprogramming
+
 data TypeSTLC = B | (-:>) TypeSTLC TypeSTLC
 
 data STLC : TypeSTLC .SortedFunctor  where
-  App : (f : a (ty1 -:> ty2) ctx) -> (x : a ty1 ctx) -> STLC a ty2 ctx
-  Lam : (x : String) ->
+  App : {ty1, ty2 : TypeSTLC} ->
+        (f : a (ty1 -:> ty2) ctx) ->
+        (x : a ty1 ctx) -> STLC a ty2 ctx
+  Lam : (x : String) -> {ty1 : TypeSTLC} ->
         (body : a ty2 (ctx :< (x :- ty1))) ->
         STLC a (ty1 -:> ty2) ctx
+
+%hint
+strSTLC : Strength STLC
+strSTLC               (App f x           ) theta
+  = App (f theta) (x theta)
+strSTLC {p, mon, ctx} (Lam str {ty1} body) theta
+  = Lam str $ body $ extend p (mon.var (%% str))
+  $ \v => mon.ren (theta v)
+                  (\u => ThereVar u) -- Bug: can't eta-reduce
+
+%hint
+functorialitySTLC : STLC .Map
+functorialitySTLC h (App f x) = App (h f) (h x)
+functorialitySTLC h (Lam str body) = Lam str (h body)
 
 Ex1 : STLC .Term Var (B -:> (B -:> B) -:> B) [<]
 Ex1 = Op $ Lam "x" $
