@@ -6,7 +6,7 @@ import Data.DPair
 import Syntax.WithProof
 
 prefix 4 %%
-infixr 3 -|> , ~> , ~:> , -<>, ^
+infixr 3 -|> , -||> , ~> , ~:> , -<>, ^
 infixl 3 <<<
 infixr 4 :-
 
@@ -48,9 +48,12 @@ Var : type.SortedFamily
 Var = flip (.var)
 
 0
+(-||>) : {type : Type} -> (src,tgt : type.Family) -> Type
+(src -||> tgt) = {0 ctx : type.Ctx} -> src ctx -> tgt ctx
+
+0
 (-|>) : {type : Type} -> (src,tgt : type.SortedFamily) -> Type
-(src -|> tgt) = {ty : type} -> {0 ctx : type.Ctx} ->
-  src ty ctx -> tgt ty ctx
+(src -|> tgt) = {ty : type} -> src ty -||> tgt ty
 
 (++) : (ctx1,ctx2 : type.Ctx) -> type.Ctx
 ctx1 ++ [<] = ctx1
@@ -208,6 +211,19 @@ traverse {p,a} alg phi chi = MkMetaAlg
       , mvar = \m,e,s => chi m (\v => e v s)
       }
 
+-- Does this follow from everything else?
+mapSubstPos : {0 a,b : type.SortedFamily} -> (a -|> b) -> {0 ctx : type.Ctx} ->
+  {0 ctx' : type.Ctx} ->
+  a.subst ctx ctx' -> b.substNamed ctx ctx'
+mapSubstPos f {ctx = (ctx :< (x :- ty))} theta Here
+  = f $ theta {ty} $ (%% _) {pos = Here}
+mapSubstPos f {ctx = (ctx :< sy)} theta (There pos)
+  = mapSubstPos {a,b} f (theta . ThereVar) pos
+
+mapSubst : {0 a,b : type.SortedFamily} -> (a -|> b) -> {0 ctx : type.Ctx} ->
+   (a.subst ctx -||> b.subst ctx)
+mapSubst f {ctx = ctx0} theta v = mapSubstPos {a,b} f theta v.pos
+
 namespace TermDef
  mutual
   {- alas, non obviously strictly positive because we can't tell
@@ -235,7 +251,7 @@ namespace TermDef
     Me : {0 ctx1, ctx2 : type.Ctx} ->
          {0 signature : type.SortedFunctor} ->
          x ty ctx2 ->
-         Sub (signature.Term x) ctx2 ctx1 ->
+         (signature.Term x).subst ctx2 ctx1 ->
          signature.Term {type} x ty ctx1
 
 (.MetaCtx) : Type -> Type
@@ -254,13 +270,6 @@ x.metaEnv (mctx :< meta) ctx =
             {mctx : type.MetaCtx} ->
             (signature.Term x).metaEnv mctx ctx ->
                              a.metaEnv mctx ctx
-(.subSem) : (0 a : type.SortedFamily) ->
-            {0 x : type.SortedFamily} ->
-            {0 signature : type.SortedFunctor} ->
-            (functoriality : signature.Map) =>
-            (str : Strength signature) =>
-            Sub (signature.Term x) ctx1 ctx2  ->
-            a.subst ctx1 ctx2
 (.sem) : (0 a : type.SortedFamily) ->
          {0 signature : type.SortedFunctor} ->
          (functoriality : signature.Map) =>
@@ -277,8 +286,11 @@ a.sem (Op args) = metalg.alg
                  $ functoriality {b = a}
                    (a.sem {signature,x,str,functoriality}) args
 a.sem (Va x   ) = MetaAlg.var metalg x
-a.sem {ctx = ctx1''} (Me  m env) =
-  MetaAlg.mvar metalg m $ (a.subSem {signature,x,str,functoriality} env)
+a.sem {ctx = ctx1''} (Me  m env)
+  = MetaAlg.mvar metalg m
+  $ mapSubst {a=signature.Term x, b = a}
+    (a.sem {signature,x,str,functoriality})
+    env
 
 -- Not sure these are useful
 data (+) : (signature1, signature2 : type.SortedFunctor) ->
@@ -309,8 +321,27 @@ data STLC : TypeSTLC .SortedFunctor  where
         (body : a ty2 (ctx :< (x :- ty1))) ->
         STLC a (ty1 -:> ty2) ctx
 
-foo : STLC .Term Var (B -:> (B -:> B) -:> B) [<]
-foo = Op $ Lam "x" $
+Ex1 : STLC .Term Var (B -:> (B -:> B) -:> B) [<]
+Ex1 = Op $ Lam "x" $
       Op $ Lam "f" $
       Op $ App (Va $ %% "f")
                (Va $ %% "x")
+
+beta : Singleton
+       {a = STLC .Term Var ty ctx}
+       (Op $ App (Op $ Lam x body) t) -> STLC .Term Var ty ctx
+beta (Val .(Op $ App (Op $ Lam x body) t)) =
+  ?beta_rhs
+
+Ex2 : STLC .Term Var (B -:> B) [<]
+Ex2 = Op $ App
+        (Op $ Lam "f" $
+         Op $ Lam "x" $
+         Op $ App
+              (Va $ %% "f")
+              (Va $ %% "x"))
+        (Op $ Lam "x" $
+              Va $ %% "x")
+
+Ex3 : STLC .Term Var (B -:> B) [<]
+Ex3 = beta $ Val Ex2
