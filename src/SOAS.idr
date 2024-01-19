@@ -166,13 +166,13 @@ lift : (ctx : type.Ctx) -> (mon : type.PointedCoalgStruct p) =>
 lift ctx f v = liftPos ctx f v.pos
 
 0
-Strength : (f : type.SortedFamily -> type.SortedFamily) -> Type
-Strength f = {0 p,x : type.SortedFamily} -> (mon : type.PointedCoalgStruct p) =>
-  (f (x ^ p)) -|> ((f x) ^ p)
-
-0
 (.SortedFunctor) : (type : Type) -> Type
 type.SortedFunctor = type.SortedFamily -> type.SortedFamily
+
+0
+Strength : (f : type.SortedFunctor) -> Type
+Strength f = {0 p,x : type.SortedFamily} -> (mon : type.PointedCoalgStruct p) =>
+  (f (x ^ p)) -|> ((f x) ^ p)
 
 0
 (.Map) : type.SortedFunctor -> Type
@@ -224,36 +224,6 @@ mapSubst : {0 a,b : type.SortedFamily} -> (a -|> b) -> {0 ctx : type.Ctx} ->
    (a.subst ctx -||> b.subst ctx)
 mapSubst f {ctx = ctx0} theta v = mapSubstPos {a,b} f theta v.pos
 
-namespace TermDef
- mutual
-  {- alas, non obviously strictly positive because we can't tell
-     Idris that signature must be strictly positive.
-
-     It will be, though, if we complete the termination project
-  -}
-
-  public export
-  data Sub : {0 signature : type.SortedFunctor} ->
-       type.SortedFamily -> type.Ctx ->
-       type.Ctx -> Type where
-      Lin :  Sub {type, signature} x [<] ctx
-      (:<) : Sub {type, signature} x shape ctx ->
-             signature.Term x ty ctx ->
-             Sub {type,signature} x (shape :< (n :- ty)) ctx
-
-  public export
-  data (.Term) : (signature : type.SortedFunctor) ->
-                 type.SortedFamily -> type.SortedFamily where
-    Op : {0 signature : type.SortedFunctor} ->
-         signature (signature.Term x) ty ctx ->
-         signature.Term x ty ctx
-    Va : Var ty ctx -> signature.Term x ty ctx
-    Me : {0 ctx1, ctx2 : type.Ctx} ->
-         {0 signature : type.SortedFunctor} ->
-         x ty ctx2 ->
-         (signature.Term x).subst ctx2 ctx1 ->
-         signature.Term {type} x ty ctx1
-
 (.MetaCtx) : Type -> Type
 type.MetaCtx = SnocList (type.Ctx, type)
 
@@ -261,6 +231,40 @@ type.MetaCtx = SnocList (type.Ctx, type)
 x.metaEnv [<]            ctx = ()
 x.metaEnv (mctx :< meta) ctx =
   (x.metaEnv mctx ctx, (x <<< (fst meta)) (snd meta) ctx)
+
+{- alas, non obviously strictly positive because we can't tell
+   Idris that signature must be strictly positive.
+
+   It will be, though, if we complete the termination project
+-}
+
+data (.Term) : (signature : type.SortedFunctor) ->
+               type.SortedFamily -> type.SortedFamily where
+  Op : {0 signature : type.SortedFunctor} ->
+       signature (signature.Term x) ty ctx ->
+       signature.Term x ty ctx
+  Va : Var ty ctx -> signature.Term x ty ctx
+  Me : {0 ctx1, ctx2 : type.Ctx} ->
+       {0 signature : type.SortedFunctor} ->
+       x ty ctx2 ->
+       (signature.Term x).subst ctx2 ctx1 ->
+       signature.Term {type} x ty ctx1
+
+(.sem) : (0 a : type.SortedFamily) ->
+         {0 signature : type.SortedFunctor} ->
+         (functoriality : signature.Map) =>
+         (str : Strength signature) =>
+         (metalg : signature.MetaAlg x a) =>
+         signature.Term x -|> a
+a.sem (Op args) = metalg.alg
+                 $ functoriality {b = a}
+                   (a.sem {signature,x,str,functoriality}) args
+a.sem (Va x   ) = MetaAlg.var metalg x
+a.sem (Me  m env)
+  = MetaAlg.mvar metalg m
+  $ mapSubst {a=signature.Term x, b = a}
+    (a.sem {signature,x,str,functoriality})
+    env
 
 (.envSem) : (0 a : type.SortedFamily) ->
             {0 signature : type.SortedFunctor} ->
@@ -270,27 +274,12 @@ x.metaEnv (mctx :< meta) ctx =
             {mctx : type.MetaCtx} ->
             (signature.Term x).metaEnv mctx ctx ->
                              a.metaEnv mctx ctx
-(.sem) : (0 a : type.SortedFamily) ->
-         {0 signature : type.SortedFunctor} ->
-         (functoriality : signature.Map) =>
-         (str : Strength signature) =>
-         (metalg : signature.MetaAlg x a) =>
-         signature.Term x -|> a
 
 a.envSem {mctx = [<]         } menv = ()
 a.envSem {mctx = mctx :< meta} (menv,v) =
       ( a.envSem {signature,x,str,functoriality} menv
       , a.sem {signature,x,str,functoriality} v
       )
-a.sem (Op args) = metalg.alg
-                 $ functoriality {b = a}
-                   (a.sem {signature,x,str,functoriality}) args
-a.sem (Va x   ) = MetaAlg.var metalg x
-a.sem {ctx = ctx1''} (Me  m env)
-  = MetaAlg.mvar metalg m
-  $ mapSubst {a=signature.Term x, b = a}
-    (a.sem {signature,x,str,functoriality})
-    env
 
 (.TermAlg) :
   (0 signature : type.SortedFunctor) ->
@@ -300,11 +289,10 @@ a.sem {ctx = ctx1''} (Me  m env)
   signature.MetaAlg x (signature.Term x)
 signature.TermAlg x = MkMetaAlg
   { alg = Op
-  , mvar = \m,env => Me m env  -- bug: type-checker complains if we
-                               -- eta-reduce
-  , var = \v => Va v           -- bug: ditto
+  , mvar = \m => Me m  -- bug: type-checker complains if we
+                       -- eta-reduce
+  , var = Va
   }
-
 
 -- Not sure these are useful
 data (+) : (signature1, signature2 : type.SortedFunctor) ->
@@ -313,7 +301,6 @@ data (+) : (signature1, signature2 : type.SortedFunctor) ->
     (op : sig1 x ty ctx) -> (sig1 + sig2) x ty ctx
   Rgt :  {signature1, signature2 : type.SortedFunctor} ->
     (op : sig2 x ty ctx) -> (sig1 + sig2) x ty ctx
-
 
 sum : (signatures : List $ (String, type.SortedFunctor)) ->
   type.SortedFunctor
