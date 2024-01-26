@@ -111,16 +111,16 @@ extend x {ctx2, ty} u theta =
 (src -<> tgt) ty ctx = {0 ctx' : type.Ctx} -> src ty ctx' ->
   tgt ty (ctx ++ ctx')
 
-0
-Nil : type.SortedFamily -> type.SortedFamily
-Nil f ty ctx = {0 ctx' : type.Ctx} -> ctx ~> ctx' -> f ty ctx'
-
 -- TODO: (Setoid) coalgebras
 
 0
 (^) : (tgt, src : type.SortedFamily) -> type.SortedFamily
 (tgt ^ src) ty ctx =
   {0 ctx' : type.Ctx} -> src.subst ctx ctx' -> tgt ty ctx'
+
+0
+Nil : type.SortedFamily -> type.SortedFamily
+Nil f = f ^ Var
 
 hideCtx : {0 a : type.Ctx -> Type} ->
   ((0 ctx : type.Ctx) -> a ctx) -> {ctx : type.Ctx} -> a ctx
@@ -136,12 +136,12 @@ record MonStruct (m : type.SortedFamily) where
   var : Var -|> m
   mult : m -|> (m ^ m)
 
-(.sub) : {m : type.SortedFamily} -> {ty,sy : type} -> {ctx : type.Ctx} ->
+(.sub) : {m : type.SortedFamily} -> {ty,sy : type} -> {0 ctx : type.Ctx} ->
   (mon : MonStruct m) => m sy (ctx :< (n :- ty)) -> m ty ctx -> m sy ctx
 t.sub s = mon.mult t (extend m s mon.var)
 
 (.sub2) : {m : type.SortedFamily} -> {ty1,ty2,sy : type} ->
-  {ctx : type.Ctx} ->
+  {0 ctx : type.Ctx} ->
   (mon : MonStruct m) => m sy (ctx :< (x :- ty1) :< (x :- ty2)) ->
   m ty1 ctx ->  m ty2 ctx -> m sy ctx
 t.sub2 s1 s2 = mon.mult t (extend m s2 (extend m s1 mon.var))
@@ -150,6 +150,13 @@ record (.PointedCoalgStruct) type (x : type.SortedFamily) where
   constructor MkPointedCoalgStruct
   ren : x -|> [] x
   var : Var -|> x
+
+%hint
+(.VarPointedCoalgStruct) : (0 type : Type) -> type.PointedCoalgStruct Var
+type.VarPointedCoalgStruct = MkPointedCoalgStruct
+  { ren = \i, f => f i
+  , var = id
+  }
 
 liftPos : (ctx : type.Ctx) -> (mon : type.PointedCoalgStruct p) =>
   {ctx2 : type.Ctx} ->
@@ -169,15 +176,24 @@ lift ctx f v = liftPos ctx f v.pos
 (.SortedFunctor) : (type : Type) -> Type
 type.SortedFunctor = type.SortedFamily -> type.SortedFamily
 
-0
-Strength : (f : type.SortedFunctor) -> Type
-Strength f = {0 p,x : type.SortedFamily} -> (mon : type.PointedCoalgStruct p) =>
-  (f (x ^ p)) -|> ((f x) ^ p)
+record Strength (f : type.SortedFunctor) where
+  constructor MkStrength
+  strength :
+    (0 p,x : type.SortedFamily) ->
+    (mon : type.PointedCoalgStruct p) ->
+    (f (x ^ p)) -|> ((f x) ^ p)
 
-0
-(.Map) : type.SortedFunctor -> Type
-signature.Map
-  = {0 a,b : type.SortedFamily} -> (a -|> b) ->
+(.str) :
+  Strength f ->
+  {0 p,x : type.SortedFamily} ->
+  (mon : type.PointedCoalgStruct p) =>
+  (f (x ^ p)) -|> ((f x) ^ p)
+strength.str {p,x,mon} = strength.strength p x mon
+
+record (.Map) (signature : type.SortedFunctor) where
+  constructor MkMap
+  map :
+    {0 a,b : type.SortedFamily} -> (a -|> b) ->
     signature a -|> signature b
 
 record (.MonoidStruct)
@@ -206,7 +222,7 @@ traverse : {0 p,a : type.SortedFamily} ->
       (phi : p -|> a) ->
       (chi : meta -|> (a ^ a)) -> signature.MetaAlg meta (a ^ p)
 traverse {p,a} alg phi chi = MkMetaAlg
-      { alg = \h,s => alg $ str h s
+      { alg = \h,s => alg $ str.str h s
       , var = \v,s => phi (s v)
       , mvar = \m,e,s => chi m (\v => e v s)
       }
@@ -256,15 +272,11 @@ data (.Term) : (signature : type.SortedFunctor) ->
          (str : Strength signature) =>
          (metalg : signature.MetaAlg x a) =>
          signature.Term x -|> a
-a.sem (Op args) = metalg.alg
-                 $ functoriality {b = a}
-                   (a.sem {signature,x,str,functoriality}) args
+a.sem (Op args) = metalg.alg $ functoriality.map a.sem args
 a.sem (Va x   ) = MetaAlg.var metalg x
 a.sem (Me  m env)
   = MetaAlg.mvar metalg m
-  $ mapSubst {a=signature.Term x, b = a}
-    (a.sem {signature,x,str,functoriality})
-    env
+  $ mapSubst {a=signature.Term x, b = a} a.sem env
 
 (.envSem) : (0 a : type.SortedFamily) ->
             {0 signature : type.SortedFunctor} ->
@@ -276,10 +288,7 @@ a.sem (Me  m env)
                              a.metaEnv mctx ctx
 
 a.envSem {mctx = [<]         } menv = ()
-a.envSem {mctx = mctx :< meta} (menv,v) =
-      ( a.envSem {signature,x,str,functoriality} menv
-      , a.sem {signature,x,str,functoriality} v
-      )
+a.envSem {mctx = mctx :< meta} (menv,v) = (a.envSem menv, a.sem v)
 
 (.TermAlg) :
   (0 signature : type.SortedFunctor) ->
@@ -292,6 +301,66 @@ signature.TermAlg x = MkMetaAlg
   , mvar = \m => Me m  -- bug: type-checker complains if we
                        -- eta-reduce
   , var = Va
+  }
+
+(.BoxTermAlg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MetaAlg x ([] (signature.Term x))
+signature.BoxTermAlg x = traverse Op Va (\m => Me m)
+
+(.TermPointedCoalg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  type.PointedCoalgStruct (signature.Term x)
+signature.TermPointedCoalg x = MkPointedCoalgStruct
+  { ren =
+    ([] (signature.Term x)).sem
+      {metalg = signature.BoxTermAlg x}
+  , var = Va
+  }
+
+(.SubstTermAlg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MetaAlg x (signature.Term x ^ signature.Term x)
+signature.SubstTermAlg x = traverse
+  { coalg = signature.TermPointedCoalg x
+  , alg = Op
+  , phi = id
+  , chi = \m => Me m
+  }
+
+%hint
+(.TermMon) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  MonStruct (signature.Term x)
+signature.TermMon x = MkSubstMonoidStruct
+  { var = Va
+  , mult =
+    (signature.Term x ^ signature.Term x).sem
+      {metalg = signature.SubstTermAlg x}
+  }
+
+%hint
+(.TermMonoid) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MonoidStruct (signature.Term x)
+signature.TermMonoid x = MkSignatureMonoid
+  { mon = signature.TermMon x
+  , alg = Op
   }
 
 -- Not sure these are useful
@@ -331,17 +400,22 @@ data STLC : TypeSTLC .SortedFunctor  where
 
 %hint
 strSTLC : Strength STLC
-strSTLC               (App f x           ) theta
-  = App (f theta) (x theta)
-strSTLC {p, mon, ctx} (Lam str {ty1} body) theta
-  = Lam str $ body $ extend p (mon.var (%% str))
-  $ \v => mon.ren (theta v)
-                  (\u => ThereVar u) -- Bug: can't eta-reduce
+strSTLC = MkStrength
+  { strength = \p,x,mon => \case
+    (App f x) => \theta => App (f theta) (x theta)
+    (Lam str {ty1} body) => \theta =>
+        Lam str $ body $ extend p (mon.var (%% str))
+      $ \v => mon.ren (theta v)
+                      (\u => ThereVar u) -- Bug: can't eta-reduce
+  }
 
 %hint
 functorialitySTLC : STLC .Map
-functorialitySTLC h (App f x) = App (h f) (h x)
-functorialitySTLC h (Lam str body) = Lam str (h body)
+functorialitySTLC = MkMap
+  { map = \h => \case
+    (App f x) => App (h f) (h x)
+    (Lam str body) => Lam str (h body)
+  }
 
 Ex1 : STLC .Term Var (B -:> (B -:> B) -:> B) [<]
 Ex1 = Op $ Lam "x" $
@@ -352,8 +426,8 @@ Ex1 = Op $ Lam "x" $
 beta : Singleton
        {a = STLC .Term Var ty ctx}
        (Op $ App (Op $ Lam x body) t) -> STLC .Term Var ty ctx
-beta (Val .(Op $ App (Op $ Lam x body) t)) =
-  ?beta_rhs
+beta (Val (Op $ App (Op $ Lam x body) t)) =
+  (.sub) {mon = STLC .TermMon Var} body t -- bug: cannot determine mon automagically
 
 Ex2 : STLC .Term Var (B -:> B) [<]
 Ex2 = Op $ App
