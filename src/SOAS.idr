@@ -111,16 +111,16 @@ extend x {ctx2, ty} u theta =
 (src -<> tgt) ty ctx = {0 ctx' : type.Ctx} -> src ty ctx' ->
   tgt ty (ctx ++ ctx')
 
-0
-Nil : type.SortedFamily -> type.SortedFamily
-Nil f ty ctx = {0 ctx' : type.Ctx} -> ctx ~> ctx' -> f ty ctx'
-
 -- TODO: (Setoid) coalgebras
 
 0
 (^) : (tgt, src : type.SortedFamily) -> type.SortedFamily
 (tgt ^ src) ty ctx =
   {0 ctx' : type.Ctx} -> src.subst ctx ctx' -> tgt ty ctx'
+
+0
+Nil : type.SortedFamily -> type.SortedFamily
+Nil f = f ^ Var
 
 hideCtx : {0 a : type.Ctx -> Type} ->
   ((0 ctx : type.Ctx) -> a ctx) -> {ctx : type.Ctx} -> a ctx
