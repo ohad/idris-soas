@@ -136,12 +136,12 @@ record MonStruct (m : type.SortedFamily) where
   var : Var -|> m
   mult : m -|> (m ^ m)
 
-(.sub) : {m : type.SortedFamily} -> {ty,sy : type} -> {ctx : type.Ctx} ->
+(.sub) : {m : type.SortedFamily} -> {ty,sy : type} -> {0 ctx : type.Ctx} ->
   (mon : MonStruct m) => m sy (ctx :< (n :- ty)) -> m ty ctx -> m sy ctx
 t.sub s = mon.mult t (extend m s mon.var)
 
 (.sub2) : {m : type.SortedFamily} -> {ty1,ty2,sy : type} ->
-  {ctx : type.Ctx} ->
+  {0 ctx : type.Ctx} ->
   (mon : MonStruct m) => m sy (ctx :< (x :- ty1) :< (x :- ty2)) ->
   m ty1 ctx ->  m ty2 ctx -> m sy ctx
 t.sub2 s1 s2 = mon.mult t (extend m s2 (extend m s1 mon.var))
