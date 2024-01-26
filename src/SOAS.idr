@@ -151,6 +151,13 @@ record (.PointedCoalgStruct) type (x : type.SortedFamily) where
   ren : x -|> [] x
   var : Var -|> x
 
+%hint
+(.VarPointedCoalgStruct) : (0 type : Type) -> type.PointedCoalgStruct Var
+type.VarPointedCoalgStruct = MkPointedCoalgStruct
+  { ren = \i, f => f i
+  , var = id
+  }
+
 liftPos : (ctx : type.Ctx) -> (mon : type.PointedCoalgStruct p) =>
   {ctx2 : type.Ctx} ->
   (p.subst ctx1 ctx2) -> p.substNamed (ctx1 ++ ctx) (ctx2 ++ ctx)
