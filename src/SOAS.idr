@@ -303,6 +303,66 @@ signature.TermAlg x = MkMetaAlg
   , var = Va
   }
 
+(.BoxTermAlg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MetaAlg x ([] (signature.Term x))
+signature.BoxTermAlg x = traverse Op Va (\m => Me m)
+
+(.TermPointedCoalg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  type.PointedCoalgStruct (signature.Term x)
+signature.TermPointedCoalg x = MkPointedCoalgStruct
+  { ren =
+    ([] (signature.Term x)).sem
+      {metalg = signature.BoxTermAlg x}
+  , var = Va
+  }
+
+(.SubstTermAlg) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MetaAlg x (signature.Term x ^ signature.Term x)
+signature.SubstTermAlg x = traverse
+  { coalg = signature.TermPointedCoalg x
+  , alg = Op
+  , phi = id
+  , chi = \m => Me m
+  }
+
+%hint
+(.TermMon) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  MonStruct (signature.Term x)
+signature.TermMon x = MkSubstMonoidStruct
+  { var = Va
+  , mult =
+    (signature.Term x ^ signature.Term x).sem
+      {metalg = signature.SubstTermAlg x}
+  }
+
+%hint
+(.TermMonoid) :
+  (0 signature : type.SortedFunctor) ->
+  (str : Strength signature) =>
+  (functoriality : signature.Map) =>
+  (0 x : type.SortedFamily) ->
+  signature.MonoidStruct (signature.Term x)
+signature.TermMonoid x = MkSignatureMonoid
+  { mon = signature.TermMon x
+  , alg = Op
+  }
+
 -- Not sure these are useful
 data (+) : (signature1, signature2 : type.SortedFunctor) ->
   type.SortedFunctor where
@@ -366,8 +426,8 @@ Ex1 = Op $ Lam "x" $
 beta : Singleton
        {a = STLC .Term Var ty ctx}
        (Op $ App (Op $ Lam x body) t) -> STLC .Term Var ty ctx
-beta (Val .(Op $ App (Op $ Lam x body) t)) =
-  ?beta_rhs
+beta (Val (Op $ App (Op $ Lam x body) t)) =
+  (.sub) {mon = STLC .TermMon Var} body t -- bug: cannot determine mon automagically
 
 Ex2 : STLC .Term Var (B -:> B) [<]
 Ex2 = Op $ App
